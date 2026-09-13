@@ -15,9 +15,11 @@
   "type": "commonjs",
   "dependencies": {
     "chess.js": "^1.4.0",
+    "jsonwebtoken": "^9.0.3",
     "ws": "^8.21.3"
   },
   "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^26.3.0",
     "@types/ws": "^8.18.1",
     "esbuild": "^0.28.2",
