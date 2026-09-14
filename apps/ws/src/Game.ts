@@ -91,4 +91,72 @@ export class Game {
         this.resetAbondonTimer();
         this.resetMoveTimer();
     }
+    async updateSecondPlayer(player2UserId: string){
+        this.player2UserId= player2UserId;
+        const users= await db.user.findMany({
+            where:{id: {[this.player1UserId, this.player2UserId ?? '']}}
+        })
+        
+        try{
+            await this.createGameInDb();
+        }catch(e){
+            console.error(e);
+            return;
+        }
+
+        const WhitePlayer= users.find((user)=>user.id=== this.player1UserId);
+        const BlackPlayer= users.find((user)=>user.id=== this.player2UserId);
+
+        socketManager.broadcast(
+            this.gameId,
+            JSON.stringify({
+                type: INIT_GAME,
+                payload: {
+                    gameId: this.gameId,
+                    whitePlayer: {
+                        name: WhitePlayer?.name,
+                        id: this.player1UserId,
+                        isGuest: WhitePlayer?.provider===AuthProvider.GUEST;
+                    },
+                    blackPlayer: {
+                        name: BlackPlayer?.name,
+                        id: this.player2UserId,
+                        isGuest: BlackPlayer?.provider===AuthProvider.GUEST;
+                    },
+                    fen: this.board.fen(),
+                    moves: [],
+                },
+            }),
+        );
+    }
+
+    async createGameInDb(){
+        this.startTime= new Date(Date.now());
+        this.lastMoveTime= this.startTime;
+
+        const game= await db.game.create({
+            data:{
+                id: this.gameId,
+                timeControl: 'CLASSICAL',
+                status: 'IN_PROGRESS',
+                start: this.startTime,
+                currentFen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+                whitePlayer: {
+                    connect: {
+                        id: this.player1UserId,
+                    }
+                },
+                blackPlayer: {
+                    connect: {
+                        id: this.player2UserId ?? '',
+                    }
+                }
+            },
+            include: {
+                whitePlayer: true,
+                blackPlayer: true,
+            },
+        });
+        this.gameId= game.id;
+    }
 }
