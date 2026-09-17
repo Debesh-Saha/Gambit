@@ -2,6 +2,7 @@ import { WebSocket } from "ws";
 import { GAME_OVER, INIT_GAME, JOIN_GAME, MOVE, OPPONENT_DISCONNECTED, JOIN_ROOM, GAME_JOINED, GAME_NOT_FOUND, GAME_ALERT, GAME_ADDED, GAME_ENDED, EXIT_GAME } from "./messages";
 import { Square } from "chess.js";
 import {socketManager, User} from "./SocketManager";
+import { Game, isPromoting } from "./Game";
 
 export class GameManager {
     private games: Game[];
