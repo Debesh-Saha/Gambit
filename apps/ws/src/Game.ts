@@ -91,6 +91,7 @@ export class Game {
         this.resetAbondonTimer();
         this.resetMoveTimer();
     }
+    
     async updateSecondPlayer(player2UserId: string){
         this.player2UserId= player2UserId;
         const users= await db.user.findMany({
@@ -158,5 +159,89 @@ export class Game {
             },
         });
         this.gameId= game.id;
+    }
+
+    async addMoveToDb(move: Move, moveTimeStamp: Date){
+        await db.$transaction([
+            db.move.create({
+                data: {
+                    gameId: this.gameId,
+                    moveNumber: this.moveCount+1,
+                    from: move.from,
+                    to: move.to,
+                    before: move.before,
+                    after: move.after,
+                    createdAt: moveTimeStamp,
+                    timeTaken: moveTimeStamp.getTime()-this.lastMoveTime.getTime(),
+                    san: move.san
+                },
+            }),
+            db.game.update({
+                data: {
+                    currentFen: move.after,
+                },
+                where: {
+                    id: this.gameId,
+                },
+            }),
+        ]);
+    }
+
+    async makeMove(user: User, move: Move){
+        if(this.board.turn()==='w' && user.userId!==this.player1UserId) return;
+        
+        if(this.board.turn()==='b' && user.userId!==this.player2UserId) return;
+        
+        if(this.result){
+            console.error(`User ${user.userId} is making a move post game completion`);
+            return;
+        }
+        
+        const moveTimeStamp= new Date(Date.now());
+
+        try{
+            if(isPromoting(this.board, move.from, move.to)){
+                this.board.move({
+                    from: move.from,
+                    to: move.to,
+                    promotion: 'q',
+                })
+            }else{
+                this.board.move({
+                    from: move.from,
+                    to: move.to
+                })
+            }
+        }catch(e){
+            console.error("Error while making move");
+            return;
+        }
+        
+        if(this.board.turn()==='b'){
+            this.player1TimeConsumed=this.player1TimeConsumed+(moveTimeStamp.getTime()-this.lastMoveTime.getTime());
+        }
+        
+        if(this.board.turn()==='w'){
+            this.player2TimeConsumed=this.player2TimeConsumed+(moveTimeStamp.getTime()-this.lastMoveTime.getTime());
+        }
+
+        await this.addMoveToDb(move, moveTimeStamp);
+        socketManager.broadcast(
+            this.gameId,
+            JSON.stringify({
+                type: MOVE,
+                payload: {
+                    move,
+                    player1TimeConsumed: this.player1TimeConsumed,
+                    player2TimeConsumed: this.player2TimeConsumed,
+                }
+            })
+        );
+
+        if(this.board.isGameOver()){
+            const result= this.board.isDraw()? 'DRAW' : this.board.turn()==='b'? 'WHITE_WINS' : 'BLACK_WINS';
+            this.endGame('COMPLETED', result);
+        }
+        this.moveCount++;
     }
 }
