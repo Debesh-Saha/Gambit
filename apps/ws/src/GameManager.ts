@@ -1,17 +1,19 @@
 import { WebSocket } from "ws";
 import { GAME_OVER, INIT_GAME, JOIN_GAME, MOVE, OPPONENT_DISCONNECTED, JOIN_ROOM, GAME_JOINED, GAME_NOT_FOUND, GAME_ALERT, GAME_ADDED, GAME_ENDED, EXIT_GAME } from "./messages";
 import { Square } from "chess.js";
-import {socketManager, User} from "./SocketManager";
+import { socketManager, User } from "./SocketManager";
 import { Game, isPromoting } from "./Game";
+import { db } from "./db";
+import { GameStatus } from "@repo/db";
 
 export class GameManager {
     private games: Game[];
-    private privateGameId: string | null;
+    private pendingGameId: string | null;
     private users: User[];
 
     constructor() {
         this.games = [];
-        this.privateGameId = null;
+        this.pendingGameId = null;
         this.users = [];
     }
 
@@ -106,85 +108,85 @@ export class GameManager {
                         moves: {
                             orderBy: {
                                 moveNumber: 'asc',
-                            }
-                        }
+                            },
+                        },
                         blackPlayer: true,
-                        whitePlayer: true
-                    }
-                })
-            }
+                        whitePlayer: true,
+                    },
+                });
 
-            if (availableGame && !availableGame.player2userId) {
-                socketManager.addUser(user, availableGame.gameId);
-                await availableGame.updateSecondPlayer(user.userId);
-                return;
-            }
+                if (availableGame && !availableGame.player2UserId) {
+                    socketManager.addUser(user, availableGame.gameId);
+                    await availableGame.updateSecondPlayer(user.userId);
+                    return;
+                }
 
-            if (!gameFromDb) {
+                if (!gameFromDb) {
+                    user.socket.send(
+                        JSON.stringify({
+                            type: GAME_NOT_FOUND,
+                        }),
+                    );
+                    return;
+                }
+
+                if (gameFromDb.status !== GameStatus.IN_PROGRESS) {
+                    user.socket.send(JSON.stringify({
+                        type: GAME_ENDED,
+                        payload: {
+                            result: gameFromDb.result,
+                            status: gameFromDb.status,
+                            moves: gameFromDb.moves,
+                            blackPlayer: {
+                                id: gameFromDb.blackPlayer.id,
+                                name: gameFromDb.blackPlayer.name,
+                            },
+                            whitePlayer: {
+                                id: gameFromDb.whitePlayer.id,
+                                name: gameFromDb.whitePlayer.name,
+                            },
+                        }
+                    }));
+                    return;
+                }
+
+                if (!availableGame) {
+                    const game = new Game(
+                        gameFromDb?.whitePlayerId!,
+                        gameFromDb?.blackPlayerId!,
+                        gameFromDb.id,
+                        gameFromDb.startAt,
+                    );
+                    game.seedMoves(gameFromDb?.moves || []);
+                    this.games.push(game);
+                    availableGame = game;
+                }
+
+                console.log(availableGame.getPlayer1TimeConsumed());
+                console.log(availableGame.getPlayer2TimeConsumed());
+
                 user.socket.send(
                     JSON.stringify({
-                        type: GAME_NOT_FOUND,
+                        type: GAME_JOINED,
+                        payload: {
+                            gameId,
+                            moves: gameFromDb.moves,
+                            blackPlayer: {
+                                id: gameFromDb.blackPlayer.id,
+                                name: gameFromDb.blackPlayer.name,
+                            },
+                            whitePlayer: {
+                                id: gameFromDb.whitePlayer.id,
+                                name: gameFromDb.whitePlayer.name,
+                            },
+                            player1TimeConsumed: availableGame.getPlayer1TimeConsumed(),
+                            player2TimeConsumed: availableGame.getPlayer2TimeConsumed(),
+                        },
                     }),
                 );
-                return;
+
+                socketManager.addUser(user, gameId);
             }
-
-            if (gameFromDb.status !== GameStatus.IN_PROGRESS) {
-                user.socket.send(JSON.stringify({
-                    type: GAME_ENDED,
-                    payload: {
-                        result: gameFromDb.result,
-                        status: gameFromDb.status,
-                        moves: gameFromDb.moves,
-                        blackPlayer: {
-                            id: gameFromDb.blackPlayer.id,
-                            name: gameFromDb.blackPlayer.name,
-                        },
-                        whitePlayer: {
-                            id: gameFromDb.whitePlayer.id,
-                            name: gameFromDb.whitePlayer.name,
-                        },
-                    }
-                }));
-                return;
-            }
-
-            if (!availableGame) {
-                const game = new Game(
-                    gameFromDb?.whitePlayerId!,
-                    gameFromDb?.blackPlayerId!,
-                    gameFromDb?.id,
-                    gameFromDb?.startAt,
-                );
-                game.seedMoves(gameFromDb?.moves || []);
-                this.games.push(game);
-                availableGame = game;
-            }
-
-            console.log(availableGame.getPlayer1TimeConsumed());
-            console.log(availableGame.getPlayer2TimeConsumed());
-
-            user.socket.send(
-                JSON.stringify({
-                    type: GAME_JOINED,
-                    payload: {
-                        gameId,
-                        moves: gameFromDb.moves,
-                        blackPlayer: {
-                            id: gameFromDb.blackPlayer.id,
-                            name: gameFromDb.blackPlayer.name,
-                        },
-                        whitePlayer: {
-                            id: gameFromDb.whitePlayer.id,
-                            name: gameFromDb.whitePlayer.name,
-                        },
-                        player1TimeConsumed: availableGame.getPlayer1TimeConsumed(),
-                        player2TimeConsumed: availableGame.getPlayer2TimeConsumed(),
-                    },
-                }),
-            );
-
-            socketManager.addUser(user, gameId);
-        })
+        });
     }
 }
