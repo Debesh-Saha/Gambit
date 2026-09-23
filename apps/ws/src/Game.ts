@@ -1,21 +1,37 @@
-import { Chess, Move, Square } from "chess.js";
-import { GAME_ENDED, INIT_GAME, MOVE } from "./messages";
-import { randomUUID } from "crypto";
-import { socketManager, User } from "./SocketManager";
+import { Chess, Move, Square } from 'chess.js';
+import {
+    GAME_ENDED,
+    INIT_GAME,
+    MOVE,
+} from './messages';
+import { db } from './db';
+import { randomUUID } from 'crypto';
+import { socketManager, User } from './SocketManager';
+import { AuthProvider } from '@repo/db';
 
-type GAME_STATUS = 'IN_PROGRESS' | 'COMPLETED' | 'ABONDONED' | 'TIME_UP' | 'PLAYER_EXIT';
-type GAME_RESULT = 'WHITE_WINS' | 'BLACK_WINS' | 'DRAW';
+type GAME_STATUS = 'IN_PROGRESS' | 'COMPLETED' | 'ABANDONED' | 'TIME_UP' | 'PLAYER_EXIT';
+type GAME_RESULT = "WHITE_WINS" | "BLACK_WINS" | "DRAW";
+
 const GAME_TIME_MS = 10 * 60 * 60 * 1000;
 
-
 export function isPromoting(chess: Chess, from: Square, to: Square) {
-    if (!from) return false;
+    if (!from) {
+        return false;
+    }
 
     const piece = chess.get(from);
 
-    if (piece?.type !== 'p') return false;
-    if (piece.color !== chess.turn()) return false;
-    if (!['1', '8'].some((it) => to.endsWith(it))) return false;
+    if (piece?.type !== 'p') {
+        return false;
+    }
+
+    if (piece.color !== chess.turn()) {
+        return false;
+    }
+
+    if (!['1', '8'].some((it) => to.endsWith(it))) {
+        return false;
+    }
 
     return chess
         .moves({ square: from, verbose: true })
@@ -51,7 +67,7 @@ export class Game {
     seedMoves(moves: {
         id: string;
         gameId: string;
-        movesNumber: number;
+        moveNumber: number;
         from: string;
         to: string;
         comments: string | null;
@@ -60,7 +76,9 @@ export class Game {
     }[]) {
         console.log(moves);
         moves.forEach((move) => {
-            if (isPromoting(this.board, move.from as Square, move.to as Square)) {
+            if (
+                isPromoting(this.board, move.from as Square, move.to as Square)
+            ) {
                 this.board.move({
                     from: move.from,
                     to: move.to,
@@ -70,7 +88,7 @@ export class Game {
                 this.board.move({
                     from: move.from,
                     to: move.to,
-                })
+                });
             }
         });
         this.moveCount = moves.length;
@@ -81,22 +99,26 @@ export class Game {
 
         moves.map((move, index) => {
             if (move.timeTaken) {
-                if (index % 2 == 0) {
+                if (index % 2 === 0) {
                     this.player1TimeConsumed += move.timeTaken;
                 } else {
                     this.player2TimeConsumed += move.timeTaken;
                 }
             }
         });
-        this.resetAbondonTimer();
+        this.resetAbandonTimer();
         this.resetMoveTimer();
     }
-
     async updateSecondPlayer(player2UserId: string) {
         this.player2UserId = player2UserId;
+
         const users = await db.user.findMany({
-            where: { id: { [this.player1UserId, this.player2UserId ?? '']} }
-        })
+            where: {
+                id: {
+                    in: [this.player1UserId, this.player2UserId ?? ''],
+                },
+            },
+        });
 
         try {
             await this.createGameInDb();
@@ -117,12 +139,12 @@ export class Game {
                     whitePlayer: {
                         name: WhitePlayer?.name,
                         id: this.player1UserId,
-                        isGuest: WhitePlayer?.provider === AuthProvider.GUEST;
+                        isGuest: WhitePlayer?.provider === AuthProvider.GUEST,
                     },
                     blackPlayer: {
                         name: BlackPlayer?.name,
                         id: this.player2UserId,
-                        isGuest: BlackPlayer?.provider === AuthProvider.GUEST;
+                        isGuest: BlackPlayer?.provider === AuthProvider.GUEST,
                     },
                     fen: this.board.fen(),
                     moves: [],
@@ -140,18 +162,18 @@ export class Game {
                 id: this.gameId,
                 timeControl: 'CLASSICAL',
                 status: 'IN_PROGRESS',
-                start: this.startTime,
+                startAt: this.startTime,
                 currentFen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
                 whitePlayer: {
                     connect: {
                         id: this.player1UserId,
-                    }
+                    },
                 },
                 blackPlayer: {
                     connect: {
                         id: this.player2UserId ?? '',
-                    }
-                }
+                    },
+                },
             },
             include: {
                 whitePlayer: true,
@@ -161,7 +183,8 @@ export class Game {
         this.gameId = game.id;
     }
 
-    async addMoveToDb(move: Move, moveTimeStamp: Date) {
+    async addMoveToDb(move: Move, moveTimestamp: Date) {
+
         await db.$transaction([
             db.move.create({
                 data: {
@@ -171,8 +194,8 @@ export class Game {
                     to: move.to,
                     before: move.before,
                     after: move.after,
-                    createdAt: moveTimeStamp,
-                    timeTaken: moveTimeStamp.getTime() - this.lastMoveTime.getTime(),
+                    createdAt: moveTimestamp,
+                    timeTaken: moveTimestamp.getTime() - this.lastMoveTime.getTime(),
                     san: move.san
                 },
             }),
@@ -187,17 +210,26 @@ export class Game {
         ]);
     }
 
-    async makeMove(user: User, move: Move) {
-        if (this.board.turn() === 'w' && user.userId !== this.player1UserId) return;
+    async makeMove(
+        user: User,
+        move: Move
+    ) {
 
-        if (this.board.turn() === 'b' && user.userId !== this.player2UserId) return;
+        // validate the type of move using zod
+        if (this.board.turn() === 'w' && user.userId !== this.player1UserId) {
+            return;
+        }
+
+        if (this.board.turn() === 'b' && user.userId !== this.player2UserId) {
+            return;
+        }
 
         if (this.result) {
             console.error(`User ${user.userId} is making a move post game completion`);
             return;
         }
 
-        const moveTimeStamp = new Date(Date.now());
+        const moveTimestamp = new Date(Date.now());
 
         try {
             if (isPromoting(this.board, move.from, move.to)) {
@@ -205,12 +237,12 @@ export class Game {
                     from: move.from,
                     to: move.to,
                     promotion: 'q',
-                })
+                });
             } else {
                 this.board.move({
                     from: move.from,
-                    to: move.to
-                })
+                    to: move.to,
+                });
             }
         } catch (e) {
             console.error("Error while making move");
@@ -218,76 +250,87 @@ export class Game {
         }
 
         if (this.board.turn() === 'b') {
-            this.player1TimeConsumed = this.player1TimeConsumed + (moveTimeStamp.getTime() - this.lastMoveTime.getTime());
+            this.player1TimeConsumed = this.player1TimeConsumed + (moveTimestamp.getTime() - this.lastMoveTime.getTime());
         }
 
         if (this.board.turn() === 'w') {
-            this.player2TimeConsumed = this.player2TimeConsumed + (moveTimeStamp.getTime() - this.lastMoveTime.getTime());
+            this.player2TimeConsumed = this.player2TimeConsumed + (moveTimestamp.getTime() - this.lastMoveTime.getTime());
         }
 
-        await this.addMoveToDb(move, moveTimeStamp);
+        await this.addMoveToDb(move, moveTimestamp);
+        this.resetAbandonTimer()
+        this.resetMoveTimer();
+
+        this.lastMoveTime = moveTimestamp;
+
         socketManager.broadcast(
             this.gameId,
             JSON.stringify({
                 type: MOVE,
-                payload: {
-                    move,
-                    player1TimeConsumed: this.player1TimeConsumed,
-                    player2TimeConsumed: this.player2TimeConsumed,
-                }
-            })
+                payload: { move, player1TimeConsumed: this.player1TimeConsumed, player2TimeConsumed: this.player2TimeConsumed },
+            }),
         );
 
         if (this.board.isGameOver()) {
-            const result = this.board.isDraw() ? 'DRAW' : this.board.turn() === 'b' ? 'WHITE_WINS' : 'BLACK_WINS';
-            this.endGame('COMPLETED', result);
+            const result = this.board.isDraw()
+                ? 'DRAW'
+                : this.board.turn() === 'b'
+                    ? 'WHITE_WINS'
+                    : 'BLACK_WINS';
+
+            this.endGame("COMPLETED", result);
         }
+
         this.moveCount++;
     }
 
     getPlayer1TimeConsumed() {
-        if (this.board.turn() = 'w') {
+        if (this.board.turn() === 'w') {
             return this.player1TimeConsumed + (new Date(Date.now()).getTime() - this.lastMoveTime.getTime());
         }
         return this.player1TimeConsumed;
     }
 
-
     getPlayer2TimeConsumed() {
-        if (this.board.turn() = 'b') {
+        if (this.board.turn() === 'b') {
             return this.player2TimeConsumed + (new Date(Date.now()).getTime() - this.lastMoveTime.getTime());
         }
         return this.player2TimeConsumed;
     }
 
-    async resetAbondonTimer() {
-        if (this.timer) clearTimeout(this.timer);
+    async resetAbandonTimer() {
+        if (this.timer) {
+            clearTimeout(this.timer);
+        }
         this.timer = setTimeout(() => {
-            this.endGame('ABONDONED', this.board.turn() === 'b' ? 'WHITE_WINS' : 'BLACK_WINS');
+            this.endGame("ABANDONED", this.board.turn() === 'b' ? 'WHITE_WINS' : 'BLACK_WINS');
         }, 60 * 1000);
     }
 
     async resetMoveTimer() {
-        if (this.moveTimer) clearTimeout(this.moveTimer);
+        if (this.moveTimer) {
+            clearTimeout(this.moveTimer)
+        }
         const turn = this.board.turn();
         const timeLeft = GAME_TIME_MS - (turn === 'w' ? this.player1TimeConsumed : this.player2TimeConsumed);
+
         this.moveTimer = setTimeout(() => {
-            this.endGame('TIME_UP', turn === 'b' ? 'WHITE_WINS' : 'BLACK_WINS');
-        }, timeLeft)
+            this.endGame("TIME_UP", turn === 'b' ? 'WHITE_WINS' : 'BLACK_WINS');
+        }, timeLeft);
     }
 
     async exitGame(user: User) {
-        this.endGame('PLAYER_EXIT', user.userId === this.player1UserId ? 'BLACK_WINS' : 'WHITE_WINS');
+        this.endGame('PLAYER_EXIT', user.userId === this.player2UserId ? 'WHITE_WINS' : 'BLACK_WINS');
     }
 
     async endGame(status: GAME_STATUS, result: GAME_RESULT) {
         const updatedGame = await db.game.update({
-            date: {
+            data: {
                 status,
                 result: result,
             },
             where: {
-                id: this.gameId
+                id: this.gameId,
             },
             include: {
                 moves: {
@@ -299,6 +342,7 @@ export class Game {
                 whitePlayer: true,
             }
         });
+
         socketManager.broadcast(
             this.gameId,
             JSON.stringify({
@@ -322,15 +366,15 @@ export class Game {
         this.clearMoveTimer();
     }
 
-    clearTimer(){
-        if(this.timer) clearTimeout(this.timer);
+    clearMoveTimer() {
+        if (this.moveTimer) clearTimeout(this.moveTimer);
     }
 
-    clearMoveTimer(){
-        if(this.moveTimer) clearTimeout(this.moveTimer);
+    setTimer(timer: NodeJS.Timeout) {
+        this.timer = timer;
     }
 
-    setTimer(timer: NodeJS.Timeout){
-        this.timer= timer;
+    clearTimer() {
+        if (this.timer) clearTimeout(this.timer);
     }
 }
