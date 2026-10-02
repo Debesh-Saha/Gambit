@@ -184,30 +184,28 @@ export class Game {
     }
 
     async addMoveToDb(move: Move, moveTimestamp: Date) {
-
-        await db.$transaction([
-            db.move.create({
-                data: {
-                    gameId: this.gameId,
-                    moveNumber: this.moveCount + 1,
-                    from: move.from,
-                    to: move.to,
-                    before: move.before,
-                    after: move.after,
-                    createdAt: moveTimestamp,
-                    timeTaken: moveTimestamp.getTime() - this.lastMoveTime.getTime(),
-                    san: move.san
-                },
-            }),
-            db.game.update({
-                data: {
-                    currentFen: move.after,
-                },
-                where: {
-                    id: this.gameId,
-                },
-            }),
-        ]);
+        await db.$transaction(
+            async (tx) => {
+                await tx.move.create({
+                    data: {
+                        gameId: this.gameId,
+                        moveNumber: this.moveCount + 1,
+                        from: move.from,
+                        to: move.to,
+                        before: move.before,
+                        after: move.after,
+                        createdAt: moveTimestamp,
+                        timeTaken: moveTimestamp.getTime() - this.lastMoveTime.getTime(),
+                        san: move.san,
+                    },
+                });
+                await tx.game.update({
+                    data: { currentFen: move.after },
+                    where: { id: this.gameId },
+                });
+            },
+            { maxWait: 10000, timeout: 20000 },
+        );
     }
 
     async makeMove(
@@ -304,7 +302,7 @@ export class Game {
         }
         this.timer = setTimeout(() => {
             this.endGame("ABANDONED", this.board.turn() === 'b' ? 'WHITE_WINS' : 'BLACK_WINS');
-        }, 60 * 1000);
+        }, 60 * 1000 * 10); //For testing purpose- 60*1000*10 but for dev- 60*1000
     }
 
     async resetMoveTimer() {
