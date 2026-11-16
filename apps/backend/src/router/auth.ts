@@ -128,7 +128,7 @@ authRoute.get('/logout', (req: Request, res: Response) => {
         }
         else {
             res.clearCookie('jwt');
-            res.redirect('http://localhost:5173/');
+            res.redirect('http://localhost:3001/'); //http://localhost:5173/
         }
     });
 });
