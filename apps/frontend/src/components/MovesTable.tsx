@@ -1,7 +1,7 @@
 import { discoverValidationDepths } from "next/dist/server/app-render/instant-validation/instant-validation";
 import { Fragment } from "react";
 
-export function MovesTables({ moves }: { moves: string[] }) {
+export function MovesTable({ moves }: { moves: string[] }) {
     const rows = [];
     for (let i = 0; i < moves.length; i += 2) {
         rows.push({ n: i / 2 + 1, white: moves[i], black: moves[i + 1] });
