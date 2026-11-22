@@ -208,11 +208,7 @@ export class Game {
         );
     }
 
-    async makeMove(
-        user: User,
-        move: Move
-    ) {
-
+    async makeMove(user: User, move: Move) {
         // validate the type of move using zod
         if (this.board.turn() === 'w' && user.userId !== this.player1UserId) {
             return;
@@ -229,43 +225,47 @@ export class Game {
 
         const moveTimestamp = new Date(Date.now());
 
+        let played: Move;
+        
         try {
-            if (isPromoting(this.board, move.from, move.to)) {
-                this.board.move({
-                    from: move.from,
-                    to: move.to,
-                    promotion: 'q',
-                });
-            } else {
-                this.board.move({
-                    from: move.from,
-                    to: move.to,
-                });
-            }
+            played = this.board.move({
+                from: move.from,
+                to: move.to,
+                ...(isPromoting(this.board, move.from, move.to) ? { promotion: 'q' } : {}),
+            });
         } catch (e) {
-            console.error("Error while making move");
+            console.error('Error while making move');
+            return;
+        }
+
+        try {
+            await this.addMoveToDb(played, moveTimestamp);
+        } catch (err) {
+            console.error('Could not save move, undoing it', err);
+            this.board.undo();
             return;
         }
 
         if (this.board.turn() === 'b') {
-            this.player1TimeConsumed = this.player1TimeConsumed + (moveTimestamp.getTime() - this.lastMoveTime.getTime());
+            this.player1TimeConsumed += moveTimestamp.getTime() - this.lastMoveTime.getTime();
         }
-
         if (this.board.turn() === 'w') {
-            this.player2TimeConsumed = this.player2TimeConsumed + (moveTimestamp.getTime() - this.lastMoveTime.getTime());
+            this.player2TimeConsumed += moveTimestamp.getTime() - this.lastMoveTime.getTime();
         }
 
-        await this.addMoveToDb(move, moveTimestamp);
-        this.resetAbandonTimer()
+        this.resetAbandonTimer();
         this.resetMoveTimer();
-
         this.lastMoveTime = moveTimestamp;
 
         socketManager.broadcast(
             this.gameId,
             JSON.stringify({
                 type: MOVE,
-                payload: { move, player1TimeConsumed: this.player1TimeConsumed, player2TimeConsumed: this.player2TimeConsumed },
+                payload: {
+                    move: played,
+                    player1TimeConsumed: this.player1TimeConsumed,
+                    player2TimeConsumed: this.player2TimeConsumed,
+                },
             }),
         );
 
@@ -275,8 +275,7 @@ export class Game {
                 : this.board.turn() === 'b'
                     ? 'WHITE_WINS'
                     : 'BLACK_WINS';
-
-            this.endGame("COMPLETED", result);
+            this.endGame('COMPLETED', result);
         }
 
         this.moveCount++;
@@ -318,10 +317,13 @@ export class Game {
     }
 
     async exitGame(user: User) {
-        this.endGame('PLAYER_EXIT', user.userId === this.player2UserId ? 'WHITE_WINS' : 'BLACK_WINS');
+        if (user.userId !== this.player1UserId && user.userId !== this.player2UserId) return;
+        await this.endGame('PLAYER_EXIT', user.userId === this.player2UserId ? 'WHITE_WINS' : 'BLACK_WINS');
     }
 
     async endGame(status: GAME_STATUS, result: GAME_RESULT) {
+        if (this.result) return;
+        this.result = result;
         const updatedGame = await db.game.update({
             data: {
                 status,
