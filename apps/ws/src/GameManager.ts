@@ -91,25 +91,18 @@ export class GameManager {
                 }
 
                 if (message.type === MOVE) {
-                    const gameId = message.payload.gameId;
-                    const game = this.games.find((game) => game.gameId === gameId);
-
+                    const game = this.games.find((g) => g.gameId === message.payload?.gameId);
                     if (game) {
-                        game.makeMove(user, message.payload.move);
-
-                        if (game.result) {
-                            this.removeGame(game.gameId);
-                        }
+                        await game.makeMove(user, message.payload.move);
+                        if (game.result) this.removeGame(game.gameId);
                     }
                 }
 
                 if (message.type === EXIT_GAME) {
-                    const gameId = message.payload.gameId;
-                    const game = this.games.find((game) => game.gameId === gameId);
-
+                    const game = this.games.find((g) => g.gameId === message.payload?.gameId);
                     if (game) {
-                        game.exitGame(user);
-                        this.removeGame(game.gameId);
+                        await game.exitGame(user);
+                        if (game.result) this.removeGame(game.gameId);
                     }
                 }
 
