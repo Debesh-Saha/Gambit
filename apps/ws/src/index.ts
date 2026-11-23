@@ -6,7 +6,7 @@ process.on('unhandledRejection', (err) => {
   console.error('Unhandled rejection:', err);
 });
 
-const wss = new WebSocketServer({ port: 8080 });
+const wss = new WebSocketServer({ port: Number(process.env.PORT) || 8080 });
 const gameManager = new GameManager();
 
 wss.on('connection', function connection(ws, req) {
