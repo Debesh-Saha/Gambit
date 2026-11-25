@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import type { ClockState } from "@/hooks/useGame";
 
-export function useRemamining(clock: ClockState, colour: 'w' | 'b') {
+export function useRemaining(clock: ClockState, colour: 'w' | 'b') {
     const [now, setNow] = useState(() => Date.now());
     const running = clock.active === colour;
 
