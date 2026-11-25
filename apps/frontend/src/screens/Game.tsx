@@ -9,6 +9,7 @@ import { GameEndModal } from '@/components/GameEndModal';
 import { useUser } from '@/hooks/useUser';
 import { useSocket } from '@/hooks/useSocket';
 import { useGame } from '@/hooks/useGame';
+import { Clock, useRemaining } from '@/components/Clock';
 
 function Centered({ children }: { children: ReactNode }) {
   return (
@@ -18,14 +19,14 @@ function Centered({ children }: { children: ReactNode }) {
   );
 }
 
-function PlayerLabel({ name, active }: { name: string; active: boolean }) {
+function PlayerLabel({ name, active, ms }: { name: string; active: boolean; ms?: number }) {
   return (
     <div
-      className={`rounded-lg px-4 py-2 font-medium ${
-        active ? 'bg-green-700' : 'bg-neutral-800 text-neutral-300'
-      }`}
+      className={`flex items-center justify-between rounded-lg px-4 py-2 font-medium ${active ? 'bg-green-700' : 'bg-neutral-800 text-neutral-300'
+        }`}
     >
-      {name}
+      <span>{name}</span>
+      {ms !== undefined && <Clock ms={ms} />}
     </div>
   );
 }
@@ -35,10 +36,7 @@ export default function Game() {
   const router = useRouter();
   const { user, loading } = useUser();
   const socket = useSocket();
-  const {
-    game, fen, moves, result, waiting, notFound, message,
-    myColour, findGame, joinGame, sendMove, resign,
-  } = useGame();
+  const { game, fen, moves, result, waiting, notFound, message, myColour, findGame, joinGame, sendMove, resign, clock, } = useGame();
 
   // Not logged in -> back to the landing page
   useEffect(() => {
@@ -49,6 +47,9 @@ export default function Game() {
   useEffect(() => {
     if (gameId !== 'random' && socket && game?.gameId !== gameId) joinGame(gameId);
   }, [gameId, socket, game?.gameId, joinGame]);
+
+  const whiteMs = useRemaining(clock, 'w');
+  const blackMs = useRemaining(clock, 'b');
 
   if (loading || !user) return <Centered>Loading…</Centered>;
 
@@ -84,6 +85,9 @@ export default function Game() {
   const me = myColour === 'w' ? game.white : game.black;
   const opponent = myColour === 'w' ? game.black : game.white;
   const turn = fen.split(' ')[1]; // 'w' or 'b'
+  const showClocks = clock.syncedAt > 0;
+  const myMs = myColour === 'w' ? whiteMs : blackMs;
+  const opponentMs = myColour === 'w' ? blackMs : whiteMs;
 
   return (
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center gap-6 p-4 lg:flex-row lg:items-start">
@@ -92,11 +96,15 @@ export default function Game() {
       </div>
 
       <aside className="flex w-full max-w-[560px] flex-col gap-4 lg:w-72">
-        <PlayerLabel name={opponent.name} active={!result && turn !== myColour} />
+        <PlayerLabel
+          name={opponent.name}
+          active={!result && turn !== myColour}
+          ms={showClocks ? opponentMs : undefined} />
         <MovesTable moves={moves} />
         <PlayerLabel
           name={isPlayer ? `${me.name} (you)` : me.name}
           active={!result && turn === myColour}
+          ms={showClocks ? myMs : undefined}
         />
         <Button variant="danger" onClick={resign} disabled={!isPlayer || !!result}>
           Resign
