@@ -2,7 +2,7 @@
 
 import { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Chess } from "chess.js";
+import { BLACK, Chess } from "chess.js";
 import { useSocket } from "./useSocket";
 import { useUser } from "./useUser";
 import { EXIT_GAME, GAME_ADDED, GAME_ALERT, GAME_ENDED, GAME_JOINED, GAME_NOT_FOUND, INIT_GAME, JOIN_ROOM, MOVE } from "@/lib/messages";
@@ -22,6 +22,13 @@ export interface GameResult {
     status: string;
 }
 
+export interface ClockState {
+    white: number;  //Time left for the moment at syncedAt..
+    black: number;
+    active: 'w' | 'b' | null; //whose clock is running null means stopped..
+    syncedAt: number;   //When we last synced with the server
+}
+
 interface GameContextValue {
     game: GameInfo | null;
     fen: string;
@@ -30,7 +37,8 @@ interface GameContextValue {
     waiting: boolean;
     notFound: boolean;
     message: string | null;
-    myColour: 'w' | 'b'
+    myColour: 'w' | 'b';
+    clock: ClockState;
     findGame: () => void;
     joinGame: (gameId: string) => void;
     sendMove: (from: string, to: string) => void;
@@ -45,6 +53,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     const router = useRouter();
     const chessRef = useRef(new Chess());
     const pendingJoin = useRef('');
+    const totalRef = useRef(10 * 60 * 1000);
 
     const [game, setGame] = useState<GameInfo | null>(null);
     const [fen, setFen] = useState(chessRef.current.fen());
@@ -53,7 +62,24 @@ export function GameProvider({ children }: { children: ReactNode }) {
     const [waiting, setWaiting] = useState(false);
     const [notFound, setNotFound] = useState(false);
     const [message, setMessage] = useState<string | null>(null);
+    const [clock, setClock] = useState<ClockState>({
+        white: totalRef.current,
+        black: totalRef.current,
+        active: null,
+        syncedAt: 0, //Initial 0 means no clock info for now..
+    });
 
+    const syncClock = useCallback(
+        (total: number, p1Consumed: number, p2Consumed: number, turn: 'w' | 'b') => {
+            totalRef.current = total;
+            setClock({
+                white: total - p1Consumed,
+                black: total - p2Consumed,
+                active: turn,
+                syncedAt: Date.now(),
+            });
+        },
+        [],);
     //Replay the list of moves from the start.. when joining or loading a game..
     const loadMoves = useCallback((list: { from: string; to: string }[]) => {
         const chess = new Chess();
@@ -90,6 +116,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
                     setMessage(null);
                     setGame({ gameId: p.gameId, white: p.whitePlayer, black: p.blackPlayer });
                     loadMoves(p.moves ?? []);
+                    syncClock(p.timeMs ?? totalRef.current, 0, 0, 'w');
                     router.push(`/game/${p.gameId}`);
                     break;
 
@@ -102,6 +129,12 @@ export function GameProvider({ children }: { children: ReactNode }) {
                         });
                         setFen(chessRef.current.fen());
                         setMoves((prev) => [...prev, played.san]);
+                        syncClock(
+                            totalRef.current,
+                            p.player1TimeConsumed,
+                            p.player2TimeConsumed,
+                            chessRef.current.turn(),
+                        );
                     } catch {
                         console.error('Server sent a move we cannot play', p.move);
                     }
@@ -112,10 +145,23 @@ export function GameProvider({ children }: { children: ReactNode }) {
                     setNotFound(false);
                     setGame({ gameId: p.gameId, white: p.whitePlayer, black: p.blackPlayer });
                     loadMoves(p.moves ?? []);
+                    syncClock(
+                        p.timeMs ?? totalRef.current,
+                        p.player1TimeConsumed,
+                        p.player2TimeConsumed,
+                        chessRef.current.turn(),
+                    );
                     break;
 
                 case GAME_ENDED:
                     setResult({ result: p.result, status: p.status });
+                    setClock((prev) => {
+                        if (!prev.active) return prev;
+                        const spent = p.status === 'TIME_UP' ? Infinity : Date.now() - prev.syncedAt;
+                        return prev.active === 'w'
+                            ? { ...prev, white: Math.max(0, prev.white - spent), active: null }
+                            : { ...prev, black: Math.max(0, prev.black - spent), active: null };
+                    });
                     if (p.whitePlayer && p.blackPlayer) {
                         setGame((prev) => ({
                             gameId: prev?.gameId ?? pendingJoin.current,
@@ -138,7 +184,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
         socket.addEventListener('message', onMessage);
         return () => socket.removeEventListener('message', onMessage);
-    }, [socket, router, loadMoves]);
+    }, [socket, router, loadMoves, syncClock]);
 
     const send = useCallback(
         (obj: unknown) => {
@@ -157,6 +203,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
         (gameId: string) => {
             pendingJoin.current = gameId;
             setNotFound(false);
+            setClock((c) => ({ ...c, active: null, syncedAt: 0 }));
             send({ type: JOIN_ROOM, payload: { gameId } });
         },
         [send],
@@ -187,7 +234,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
     return (
         <GameContext.Provider
-            value={{ game, fen, moves, result, waiting, notFound, message, myColour, findGame, joinGame, sendMove, resign }}
+            value={{ game, fen, moves, result, waiting, notFound, message, myColour, clock, findGame, joinGame, sendMove, resign }}
         >
             {children}
         </GameContext.Provider>
