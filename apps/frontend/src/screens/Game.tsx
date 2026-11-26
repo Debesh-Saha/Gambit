@@ -36,7 +36,7 @@ export default function Game() {
   const router = useRouter();
   const { user, loading } = useUser();
   const socket = useSocket();
-  const { game, fen, moves, result, waiting, notFound, message, myColour, findGame, joinGame, sendMove, resign, clock, } = useGame();
+  const { game, fen, moves, result, waiting, notFound, message, myColour, findGame, joinGame, sendMove, resign, clock, cancelSearch } = useGame();
 
   // Not logged in -> back to the landing page
   useEffect(() => {
@@ -57,14 +57,24 @@ export default function Game() {
   if (gameId === 'random') {
     return (
       <Centered>
-        <h1 className="text-3xl font-bold">Find a game</h1>
-        {message && <p className="text-yellow-400">{message}</p>}
         {waiting ? (
-          <p className="animate-pulse text-neutral-300">Waiting for an opponent…</p>
+          <div>
+            <div className="animate-pulse text-neutral-300">
+              Waiting for an opponent…
+            </div>
+            <Button variant="danger" onClick={cancelSearch}>
+              Cancel
+            </Button>
+          </div>
         ) : (
-          <Button onClick={findGame} disabled={!socket}>
-            {socket ? 'Play' : 'Connecting…'}
-          </Button>
+          <div>
+            <div className='text-xl font-bold'>
+              Gambit
+            </div>
+            <Button onClick={findGame} disabled={!socket}>
+              {socket ? 'Play' : 'Connecting…'}
+            </Button>
+          </div>
         )}
       </Centered>
     );
