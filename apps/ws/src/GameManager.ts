@@ -73,12 +73,11 @@ export class GameManager {
 
                     if (pendingGame) {
                         if (user.userId === pendingGame.player1UserId) {
-                            socketManager.broadcast(
-                                pendingGame.gameId,
+                            user.socket.send(
                                 JSON.stringify({
                                     type: GAME_ALERT,
                                     payload: {
-                                        message: "Trying to connect with yourself?",
+                                        message: "You are already searching for a game in another tab.",
                                     },
                                 }),
                             );
