@@ -203,7 +203,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     }, [send]);
 
     const cancelSearch= useCallback(()=>{
-        send:({type: CANCEL_SEARCH});
+        send({type: CANCEL_SEARCH});
         setWaitingOn(null);
         setMessage(null);
     },[send]);
