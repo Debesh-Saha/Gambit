@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { BLACK, Chess } from "chess.js";
 import { useSocket } from "./useSocket";
 import { useUser } from "./useUser";
-import { EXIT_GAME, GAME_ADDED, GAME_ALERT, GAME_ENDED, GAME_JOINED, GAME_NOT_FOUND, INIT_GAME, JOIN_ROOM, MOVE } from "@/lib/messages";
+import { EXIT_GAME, GAME_ADDED, GAME_ALERT, GAME_ENDED, GAME_JOINED, GAME_NOT_FOUND, INIT_GAME, JOIN_ROOM, MOVE, CANCEL_SEARCH } from "@/lib/messages";
 
 export interface Player {
     id: string;
@@ -43,6 +43,7 @@ interface GameContextValue {
     joinGame: (gameId: string) => void;
     sendMove: (from: string, to: string) => void;
     resign: () => void;
+    cancelSearch: ()=>void;
 }
 
 const GameContext = createContext<GameContextValue | null>(null);
@@ -59,7 +60,6 @@ export function GameProvider({ children }: { children: ReactNode }) {
     const [fen, setFen] = useState(chessRef.current.fen());
     const [moves, setMoves] = useState<string[]>([]);
     const [result, setResult] = useState<GameResult | null>(null);
-    const [waiting, setWaiting] = useState(false);
     const [notFound, setNotFound] = useState(false);
     const [message, setMessage] = useState<string | null>(null);
     const [clock, setClock] = useState<ClockState>({
@@ -68,6 +68,9 @@ export function GameProvider({ children }: { children: ReactNode }) {
         active: null,
         syncedAt: 0, //Initial 0 means no clock info for now..
     });
+
+    const [waitingOn, setWaitingOn] = useState<WebSocket | null>(null);
+    const waiting = waitingOn !== null && waitingOn === socket;
 
     const syncClock = useCallback(
         (total: number, p1Consumed: number, p2Consumed: number, turn: 'w' | 'b') => {
@@ -106,11 +109,11 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
             switch (message.type) {
                 case GAME_ADDED:
-                    setWaiting(true);
+                    setWaitingOn(socket);
                     break;
 
                 case INIT_GAME:
-                    setWaiting(false);
+                    setWaitingOn(null);
                     setResult(null);
                     setNotFound(false);
                     setMessage(null);
@@ -199,6 +202,12 @@ export function GameProvider({ children }: { children: ReactNode }) {
         send({ type: INIT_GAME });
     }, [send]);
 
+    const cancelSearch= useCallback(()=>{
+        send:({type: CANCEL_SEARCH});
+        setWaitingOn(null);
+        setMessage(null);
+    },[send]);
+
     const joinGame = useCallback(
         (gameId: string) => {
             pendingJoin.current = gameId;
@@ -234,7 +243,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
     return (
         <GameContext.Provider
-            value={{ game, fen, moves, result, waiting, notFound, message, myColour, clock, findGame, joinGame, sendMove, resign }}
+            value={{ game, fen, moves, result, waiting, notFound, message, myColour, clock, findGame, joinGame, sendMove, resign, cancelSearch }}
         >
             {children}
         </GameContext.Provider>
