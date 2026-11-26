@@ -1,5 +1,5 @@
 import { WebSocket } from "ws";
-import { GAME_OVER, INIT_GAME, JOIN_GAME, MOVE, OPPONENT_DISCONNECTED, JOIN_ROOM, GAME_JOINED, GAME_NOT_FOUND, GAME_ALERT, GAME_ADDED, GAME_ENDED, EXIT_GAME } from "./messages";
+import { GAME_OVER, INIT_GAME, JOIN_GAME, MOVE, OPPONENT_DISCONNECTED, JOIN_ROOM, GAME_JOINED, GAME_NOT_FOUND, GAME_ALERT, GAME_ADDED, GAME_ENDED, EXIT_GAME, CANCEL_SEARCH } from "./messages";
 import { Square } from "chess.js";
 import { socketManager, User } from "./SocketManager";
 import { Game, isPromoting, GAME_TIME_MS } from "./Game";
@@ -10,11 +10,13 @@ export class GameManager {
     private games: Game[];
     private pendingGameId: string | null;
     private users: User[];
+    private pendingUser: User | null;
 
     constructor() {
         this.games = [];
         this.pendingGameId = null;
         this.users = [];
+        this.pendingUser = null;
     }
 
     addUser(user: User) {
@@ -29,7 +31,16 @@ export class GameManager {
             return;
         }
         this.users = this.users.filter((user) => user.socket !== socket);
+        this.cancelPendingGame(user, false);
         socketManager.removeUser(user);
+    }
+
+    private cancelPendingGame(user: User, leaveRoom: boolean) {
+        if (!this.pendingGameId || this.pendingUser?.socket !== user.socket) return;
+        this.removeGame(this.pendingGameId);
+        this.pendingGameId = null;
+        this.pendingUser = null;
+        if (leaveRoom) socketManager.removeUser(user);
     }
 
     removeGame(gameId: string) {
@@ -50,17 +61,20 @@ export class GameManager {
 
             try {
                 if (message.type === INIT_GAME) {
-                    if (this.pendingGameId) {
-                        const game = this.games.find((x) => x.gameId === this.pendingGameId);
+                    let pendingGame = this.pendingGameId
+                        ? this.games.find((x) => x.gameId === this.pendingGameId)
+                        : undefined;
 
-                        if (!game) {
-                            console.error("Pending game not found!");
-                            return;
-                        }
+                    if (!pendingGame || pendingGame.player2UserId) {
+                        pendingGame = undefined;
+                        this.pendingGameId = null;
+                        this.pendingUser = null;
+                    }
 
-                        if (user.userId === game.player1UserId) {
+                    if (pendingGame) {
+                        if (user.userId === pendingGame.player1UserId) {
                             socketManager.broadcast(
-                                game.gameId,
+                                pendingGame.gameId,
                                 JSON.stringify({
                                     type: GAME_ALERT,
                                     payload: {
@@ -70,15 +84,15 @@ export class GameManager {
                             );
                             return;
                         }
-
-                        socketManager.addUser(user, game.gameId);
-                        await game?.updateSecondPlayer(user.userId);
+                        socketManager.addUser(user, pendingGame.gameId);
                         this.pendingGameId = null;
+                        this.pendingUser = null;
+                        await pendingGame.updateSecondPlayer(user.userId);
                     } else {
                         const game = new Game(user.userId, null);
                         this.games.push(game);
                         this.pendingGameId = game.gameId;
-
+                        this.pendingUser = user;
                         socketManager.addUser(user, game.gameId);
                         socketManager.broadcast(
                             game.gameId,
@@ -88,6 +102,10 @@ export class GameManager {
                             }),
                         );
                     }
+                }
+
+                if (message.type === CANCEL_SEARCH) {
+                    this.cancelPendingGame(user, true);
                 }
 
                 if (message.type === MOVE) {
