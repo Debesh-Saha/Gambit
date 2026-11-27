@@ -36,7 +36,7 @@ export default function Game() {
   const router = useRouter();
   const { user, loading } = useUser();
   const socket = useSocket();
-  const { game, fen, moves, result, waiting, notFound, message, myColour, findGame, joinGame, sendMove, resign, clock, cancelSearch, searching } = useGame();
+  const { game, fen, moves, result, notFound, message, myColour, findGame, joinGame, sendMove, resign, clock, cancelSearch, searchStatus } = useGame();
 
   // Not logged in -> back to the landing page
   useEffect(() => {
@@ -55,27 +55,31 @@ export default function Game() {
 
   // The lobby: /game/random
   if (gameId === 'random') {
-    const busy = waiting || searching;
     return (
       <Centered>
         {message && <p className="text-yellow-400">{message}</p>}
         <div className="text-xl font-bold">Gambit</div>
 
-        {busy ? (
-          <div className='flex flex-col gap-2'>
+        {!socket ? (
+          <div className="animate-pulse text-neutral-300">Connecting…</div>
+        ) : searchStatus === 'idle' ? (
+          <Button onClick={findGame}>Play</Button>
+        ) : (
+          <div className="flex flex-col gap-2">
             <div className="animate-pulse text-neutral-300">
-              {waiting ? 'Waiting for an opponent…' : 'Connecting to a game…'}
+              {searchStatus === 'searching' && 'Looking for a game…'}
+              {searchStatus === 'waiting' && 'Waiting for an opponent…'}
+              {searchStatus === 'matched' && 'Opponent found, starting the game…'}
+              {searchStatus === 'cancelling' && 'Cancelling…'}
             </div>
-            {waiting ? (
-              <Button variant="danger" onClick={cancelSearch}>Cancel</Button>
+            {searchStatus === 'waiting' ? (
+              <Button variant="danger" onClick={cancelSearch}>
+                Cancel
+              </Button>
             ) : (
-              <div className="h-12"/>
+              <div className="h-12" /> // keeps the layout from jumping
             )}
           </div>
-        ) : (
-          socket ? 
-          <Button onClick={findGame} disabled={!socket}>Play</Button> :
-          <div className="animate-pulse text-neutral-300">Connecting…</div>
         )}
       </Centered>
     );
