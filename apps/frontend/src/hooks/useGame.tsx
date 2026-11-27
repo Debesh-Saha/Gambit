@@ -43,7 +43,8 @@ interface GameContextValue {
     joinGame: (gameId: string) => void;
     sendMove: (from: string, to: string) => void;
     resign: () => void;
-    cancelSearch: ()=>void;
+    cancelSearch: () => void;
+    searching: boolean;
 }
 
 const GameContext = createContext<GameContextValue | null>(null);
@@ -71,6 +72,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
     const [waitingOn, setWaitingOn] = useState<WebSocket | null>(null);
     const waiting = waitingOn !== null && waitingOn === socket;
+    const [searchingOn, setSearchingOn] = useState<WebSocket | null>(null);
+    const searching = searchingOn !== null && searchingOn === socket;
 
     const syncClock = useCallback(
         (total: number, p1Consumed: number, p2Consumed: number, turn: 'w' | 'b') => {
@@ -109,10 +112,12 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
             switch (message.type) {
                 case GAME_ADDED:
+                    setSearchingOn(null);
                     setWaitingOn(socket);
                     break;
 
                 case INIT_GAME:
+                    setSearchingOn(null);
                     setWaitingOn(null);
                     setResult(null);
                     setNotFound(false);
@@ -180,6 +185,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
                     break;
 
                 case GAME_ALERT:
+                    setSearchingOn(null);
                     setMessage(p?.message ?? 'Something happened');
                     break;
             }
@@ -199,14 +205,16 @@ export function GameProvider({ children }: { children: ReactNode }) {
     const findGame = useCallback(() => {
         setResult(null);
         setMessage(null);
+        setSearchingOn(socket);
+        setTimeout(() => setSearchingOn(null), 8000);
         send({ type: INIT_GAME });
-    }, [send]);
+    }, [send, socket]);
 
-    const cancelSearch= useCallback(()=>{
-        send({type: CANCEL_SEARCH});
+    const cancelSearch = useCallback(() => {
+        send({ type: CANCEL_SEARCH });
         setWaitingOn(null);
         setMessage(null);
-    },[send]);
+    }, [send]);
 
     const joinGame = useCallback(
         (gameId: string) => {
@@ -243,7 +251,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
     return (
         <GameContext.Provider
-            value={{ game, fen, moves, result, waiting, notFound, message, myColour, clock, findGame, joinGame, sendMove, resign, cancelSearch }}
+            value={{ game, fen, moves, result, waiting, notFound, message, myColour, clock, findGame, joinGame, sendMove, resign, cancelSearch, searching}}
         >
             {children}
         </GameContext.Provider>
