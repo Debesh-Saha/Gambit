@@ -18,56 +18,69 @@ export class User{
     }
 }
 
-class SocketManager{
+class SocketManager {
     private static instance: SocketManager;
     private interestedSockets: Map<string, User[]>;
-    private userRoomMapping: Map<string,string>;
+    // which room each CONNECTION is in (user.id is unique per connection)
+    private userRoomMapping: Map<string, string>;
 
-    private constructor(){
-        this.interestedSockets= new Map<string, User[]>();
-        this.userRoomMapping= new Map<string,string>();
+    private constructor() {
+        this.interestedSockets = new Map<string, User[]>();
+        this.userRoomMapping = new Map<string, string>();
     }
 
-    static getInstance(){
-        if(SocketManager.instance){
+    static getInstance() {
+        if (SocketManager.instance) {
             return SocketManager.instance;
         }
-        SocketManager.instance= new SocketManager();
+        SocketManager.instance = new SocketManager();
         return SocketManager.instance;
     }
 
-    addUser(user: User, roomId: string){
-        this.interestedSockets.set(roomId,[
-            ...(this.interestedSockets.get(roomId) || []),
-            user,
-        ]);
-        this.userRoomMapping.set(user.userId, roomId);
+    addUser(user: User, roomId: string) {
+        // a connection can only be in one room at a time
+        const previousRoom = this.userRoomMapping.get(user.id);
+        if (previousRoom && previousRoom !== roomId) {
+            this.removeUser(user);
+        }
+        const room = this.interestedSockets.get(roomId) || [];
+        if (!room.some((u) => u.id === user.id)) {
+            this.interestedSockets.set(roomId, [...room, user]);
+        }
+        this.userRoomMapping.set(user.id, roomId);
     }
 
-    broadcast(roomId: string, message: string){
-        const users= this.interestedSockets.get(roomId);
-        if(!users){
+    // is any connection of this ACCOUNT still in the room?
+    hasUser(roomId: string, userId: string) {
+        return (this.interestedSockets.get(roomId) || []).some((u) => u.userId === userId);
+    }
+
+    broadcast(roomId: string, message: string) {
+        const users = this.interestedSockets.get(roomId);
+        if (!users) {
             console.error("No user in the room");
             return;
         }
-        users.forEach((user)=>{
-            user.socket.send(message);
-        })
+        users.forEach((user) => {
+            if (user.socket.readyState === WebSocket.OPEN) {
+                user.socket.send(message);
+            }
+        });
     }
 
-    removeUser(user: User){
-        const roomId= this.userRoomMapping.get(user.userId);
-        if(!roomId){
-            console.error("User was not interested in any room??");
-            return;
-        }
-        const room= this.interestedSockets.get(roomId) || [];
-        const remainingUsers= room.filter((u)=>u.userId!==user.userId)
-        this.interestedSockets.set(roomId, remainingUsers);
-        if(this.interestedSockets.get(roomId)?.length==0){
+    removeUser(user: User) {
+        const roomId = this.userRoomMapping.get(user.id);
+        if (!roomId) return; // this connection was not in any room
+        const remaining = (this.interestedSockets.get(roomId) || []).filter(
+            (u) => u.id !== user.id,
+        );
+        if (remaining.length === 0) {
             this.interestedSockets.delete(roomId);
+        } else {
+            this.interestedSockets.set(roomId, remaining);
         }
-        this.userRoomMapping.delete(user.userId);
+        this.userRoomMapping.delete(user.id);
     }
 }
+
 export const socketManager= SocketManager.getInstance();
