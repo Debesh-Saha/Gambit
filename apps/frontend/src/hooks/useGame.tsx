@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { BLACK, Chess } from "chess.js";
 import { useSocket } from "./useSocket";
 import { useUser } from "./useUser";
-import { EXIT_GAME, GAME_ADDED, GAME_ALERT, GAME_ENDED, GAME_JOINED, GAME_NOT_FOUND, INIT_GAME, JOIN_ROOM, MOVE, CANCEL_SEARCH } from "@/lib/messages";
+import { EXIT_GAME, GAME_ADDED, GAME_ALERT, GAME_ENDED, GAME_JOINED, GAME_NOT_FOUND, INIT_GAME, JOIN_ROOM, MOVE, CANCEL_SEARCH, MATCH_FOUND, SEARCH_CANCELLED } from "@/lib/messages";
 
 export interface Player {
     id: string;
@@ -29,12 +29,13 @@ export interface ClockState {
     syncedAt: number;   //When we last synced with the server
 }
 
+export type SearchStatus = 'idle' | 'searching' | 'waiting' | 'matched' | 'cancelling';
+
 interface GameContextValue {
     game: GameInfo | null;
     fen: string;
     moves: string[];
     result: GameResult | null;
-    waiting: boolean;
     notFound: boolean;
     message: string | null;
     myColour: 'w' | 'b';
@@ -44,7 +45,7 @@ interface GameContextValue {
     sendMove: (from: string, to: string) => void;
     resign: () => void;
     cancelSearch: () => void;
-    searching: boolean;
+    searchStatus: SearchStatus
 }
 
 const GameContext = createContext<GameContextValue | null>(null);
@@ -70,10 +71,9 @@ export function GameProvider({ children }: { children: ReactNode }) {
         syncedAt: 0, //Initial 0 means no clock info for now..
     });
 
-    const [waitingOn, setWaitingOn] = useState<WebSocket | null>(null);
-    const waiting = waitingOn !== null && waitingOn === socket;
-    const [searchingOn, setSearchingOn] = useState<WebSocket | null>(null);
-    const searching = searchingOn !== null && searchingOn === socket;
+    const [searchState, setSearchState] = useState<{ socket: WebSocket; status: SearchStatus } | null>(null);
+    // tied to the socket: if the connection changes, the search resets to "idle" by itself
+    const searchStatus: SearchStatus = searchState && searchState.socket === socket ? searchState.status : 'idle';
 
     const syncClock = useCallback(
         (total: number, p1Consumed: number, p2Consumed: number, turn: 'w' | 'b') => {
@@ -112,13 +112,20 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
             switch (message.type) {
                 case GAME_ADDED:
-                    setSearchingOn(null);
-                    setWaitingOn(socket);
+                    setSearchState({ socket, status: 'waiting' });
+                    break;
+
+                case MATCH_FOUND:
+                    setSearchState({ socket, status: 'matched' });
+                    break;
+
+                case SEARCH_CANCELLED:
+                    setSearchState(null);
+                    setMessage(null);
                     break;
 
                 case INIT_GAME:
-                    setSearchingOn(null);
-                    setWaitingOn(null);
+                    setSearchState(null);
                     setResult(null);
                     setNotFound(false);
                     setMessage(null);
@@ -185,7 +192,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
                     break;
 
                 case GAME_ALERT:
-                    setSearchingOn(null);
+                    setSearchState((s) => (s?.status === 'searching' ? null : s));
                     setMessage(p?.message ?? 'Something happened');
                     break;
             }
@@ -203,18 +210,21 @@ export function GameProvider({ children }: { children: ReactNode }) {
     );
 
     const findGame = useCallback(() => {
+        if (!socket) return;
         setResult(null);
         setMessage(null);
-        setSearchingOn(socket);
-        setTimeout(() => setSearchingOn(null), 8000);
+        setSearchState({ socket, status: 'searching' });
+        // safety net: never stay stuck on "searching"
+        setTimeout(() => setSearchState((s) => (s?.status === 'searching' ? null : s)), 8000);
         send({ type: INIT_GAME });
     }, [send, socket]);
 
     const cancelSearch = useCallback(() => {
+        if (!socket || searchStatus !== 'waiting') return;
+        setSearchState({ socket, status: 'cancelling' }); // wait for the server to confirm
         send({ type: CANCEL_SEARCH });
-        setWaitingOn(null);
-        setMessage(null);
-    }, [send]);
+        setTimeout(() => setSearchState((s) => (s?.status === 'cancelling' ? null : s)), 5000);
+    }, [send, socket, searchStatus]);
 
     const joinGame = useCallback(
         (gameId: string) => {
@@ -251,7 +261,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
     return (
         <GameContext.Provider
-            value={{ game, fen, moves, result, waiting, notFound, message, myColour, clock, findGame, joinGame, sendMove, resign, cancelSearch, searching}}
+            value={{ game, fen, moves, result, notFound, message, myColour, clock, findGame, joinGame, sendMove, resign, cancelSearch, searchStatus }}
         >
             {children}
         </GameContext.Provider>
