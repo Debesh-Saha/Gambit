@@ -12,3 +12,4 @@ export const GAME_ADDED= "game_added";
 export const GAME_TIME= "game_time";
 export const EXIT_GAME= "exit_game";
 export const CANCEL_SEARCH = "cancel_search";
+export const OPPONENT_RECONNECTED = "opponent_reconnected";
