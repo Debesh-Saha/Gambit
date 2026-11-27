@@ -36,7 +36,7 @@ export default function Game() {
   const router = useRouter();
   const { user, loading } = useUser();
   const socket = useSocket();
-  const { game, fen, moves, result, waiting, notFound, message, myColour, findGame, joinGame, sendMove, resign, clock, cancelSearch } = useGame();
+  const { game, fen, moves, result, waiting, notFound, message, myColour, findGame, joinGame, sendMove, resign, clock, cancelSearch, searching } = useGame();
 
   // Not logged in -> back to the landing page
   useEffect(() => {
@@ -55,26 +55,27 @@ export default function Game() {
 
   // The lobby: /game/random
   if (gameId === 'random') {
+    const busy = waiting || searching;
     return (
       <Centered>
-        {waiting ? (
-          <div>
+        {message && <p className="text-yellow-400">{message}</p>}
+        <div className="text-xl font-bold">Gambit</div>
+
+        {busy ? (
+          <div className='flex flex-col gap-2'>
             <div className="animate-pulse text-neutral-300">
-              Waiting for an opponent…
+              {waiting ? 'Waiting for an opponent…' : 'Connecting to a game…'}
             </div>
-            <Button variant="danger" onClick={cancelSearch}>
-              Cancel
-            </Button>
+            {waiting ? (
+              <Button variant="danger" onClick={cancelSearch}>Cancel</Button>
+            ) : (
+              <div className="h-12"/>
+            )}
           </div>
         ) : (
-          <div>
-            <div className='text-xl font-bold'>
-              Gambit
-            </div>
-            <Button onClick={findGame} disabled={!socket}>
-              {socket ? 'Play' : 'Connecting…'}
-            </Button>
-          </div>
+          socket ? 
+          <Button onClick={findGame} disabled={!socket}>Play</Button> :
+          <div className="animate-pulse text-neutral-300">Connecting…</div>
         )}
       </Centered>
     );
