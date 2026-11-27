@@ -13,3 +13,5 @@ export const GAME_TIME= "game_time";
 export const EXIT_GAME= "exit_game";
 export const CANCEL_SEARCH = "cancel_search";
 export const OPPONENT_RECONNECTED = "opponent_reconnected";
+export const MATCH_FOUND = "match_found";
+export const SEARCH_CANCELLED = "search_cancelled";
