@@ -1,5 +1,5 @@
 import { WebSocket } from "ws";
-import { GAME_OVER, INIT_GAME, JOIN_GAME, MOVE, OPPONENT_DISCONNECTED, JOIN_ROOM, GAME_JOINED, GAME_NOT_FOUND, GAME_ALERT, GAME_ADDED, GAME_ENDED, EXIT_GAME, CANCEL_SEARCH } from "./messages";
+import { GAME_OVER, INIT_GAME, JOIN_GAME, MOVE, OPPONENT_DISCONNECTED, JOIN_ROOM, GAME_JOINED, GAME_NOT_FOUND, GAME_ALERT, GAME_ADDED, GAME_ENDED, EXIT_GAME, CANCEL_SEARCH, MATCH_FOUND, SEARCH_CANCELLED } from "./messages";
 import { Square } from "chess.js";
 import { socketManager, User } from "./SocketManager";
 import { Game, isPromoting, GAME_TIME_MS } from "./Game";
@@ -35,12 +35,15 @@ export class GameManager {
         socketManager.removeUser(user);
     }
 
-    private cancelPendingGame(user: User, leaveRoom: boolean) {
-        if (!this.pendingGameId || this.pendingUser?.socket !== user.socket) return;
+    private cancelPendingGame(user: User, leaveRoom: boolean): boolean {
+        // only the player who is actually waiting (this very socket) can cancel
+        if (!this.pendingGameId || this.pendingUser?.socket !== user.socket) return false;
+
         this.removeGame(this.pendingGameId);
         this.pendingGameId = null;
         this.pendingUser = null;
         if (leaveRoom) socketManager.removeUser(user);
+        return true;
     }
 
     removeGame(gameId: string) {
@@ -84,8 +87,14 @@ export class GameManager {
                             return;
                         }
                         socketManager.addUser(user, pendingGame.gameId);
+                        // clear BEFORE the await, so nobody else can grab the same game
                         this.pendingGameId = null;
                         this.pendingUser = null;
+                        // tell both players right away, before the slow database step
+                        socketManager.broadcast(
+                            pendingGame.gameId,
+                            JSON.stringify({ type: MATCH_FOUND }),
+                        );
                         await pendingGame.updateSecondPlayer(user.userId);
                     } else {
                         const game = new Game(user.userId, null);
@@ -104,7 +113,11 @@ export class GameManager {
                 }
 
                 if (message.type === CANCEL_SEARCH) {
-                    this.cancelPendingGame(user, true);
+                    const cancelled = this.cancelPendingGame(user, true);
+                    // if it was too late to cancel, say nothing: the game start message follows
+                    if (cancelled) {
+                        user.socket.send(JSON.stringify({ type: SEARCH_CANCELLED }));
+                    }
                 }
 
                 if (message.type === MOVE) {
