@@ -8,3 +8,5 @@ export const GAME_ENDED = 'game_ended';
 export const GAME_NOT_FOUND = 'game_not_found';
 export const GAME_ALERT = 'game_alert';
 export const CANCEL_SEARCH = 'cancel_search';
+export const MATCH_FOUND = 'match_found';
+export const SEARCH_CANCELLED = 'search_cancelled';
