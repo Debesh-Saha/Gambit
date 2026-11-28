@@ -24,7 +24,7 @@ export class GameManager {
         this.addHandler(user);
     }
 
-    removeUser(socket: WebSocket) {
+        removeUser(socket: WebSocket) {
         const user = this.users.find((user) => user.socket === socket);
         if (!user) {
             console.error("User not found?");
@@ -32,7 +32,21 @@ export class GameManager {
         }
         this.users = this.users.filter((user) => user.socket !== socket);
         this.cancelPendingGame(user, false);
+
+        // was this connection part of a live game?
+        const game = this.games.find(
+            (g) =>
+                !g.result &&
+                g.player2UserId &&
+                (g.player1UserId === user.userId || g.player2UserId === user.userId),
+        );
+
         socketManager.removeUser(user);
+
+        // start the "come back" countdown, unless another tab of the same account is still in the game
+        if (game && !socketManager.hasUser(game.gameId, user.userId)) {
+            game.playerDisconnected(user.userId);
+        }
     }
 
     private cancelPendingGame(user: User, leaveRoom: boolean): boolean {
