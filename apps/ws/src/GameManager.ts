@@ -24,7 +24,7 @@ export class GameManager {
         this.addHandler(user);
     }
 
-        removeUser(socket: WebSocket) {
+    removeUser(socket: WebSocket) {
         const user = this.users.find((user) => user.socket === socket);
         if (!user) {
             console.error("User not found?");
@@ -112,6 +112,7 @@ export class GameManager {
                         await pendingGame.updateSecondPlayer(user.userId);
                     } else {
                         const game = new Game(user.userId, null);
+                        game.onEnd = (id) => this.removeGame(id);
                         this.games.push(game);
                         this.pendingGameId = game.gameId;
                         this.pendingUser = user;
@@ -213,6 +214,7 @@ export class GameManager {
                             gameFromDb.id,
                             gameFromDb.startAt,
                         );
+                        game.onEnd = (id) => this.removeGame(id);
 
                         game.seedMoves(gameFromDb?.moves || []);
                         this.games.push(game);
@@ -244,6 +246,7 @@ export class GameManager {
                     );
 
                     socketManager.addUser(user, gameId);
+                    availableGame.playerReconnected(user.userId);
                 }
             } catch (err) {
                 console.error("Error handling message", message.type, err);
