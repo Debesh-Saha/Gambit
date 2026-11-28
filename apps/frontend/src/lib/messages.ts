@@ -10,3 +10,5 @@ export const GAME_ALERT = 'game_alert';
 export const CANCEL_SEARCH = 'cancel_search';
 export const MATCH_FOUND = 'match_found';
 export const SEARCH_CANCELLED = 'search_cancelled';
+export const OPPONENT_DISCONNECTED = 'opponent_disconnected';
+export const OPPONENT_RECONNECTED = 'opponent_reconnected';
