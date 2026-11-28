@@ -1,9 +1,5 @@
 import { Chess, Move, Square } from 'chess.js';
-import {
-    GAME_ENDED,
-    INIT_GAME,
-    MOVE,
-} from './messages';
+import { GAME_ENDED, INIT_GAME, MOVE, OPPONENT_DISCONNECTED, OPPONENT_RECONNECTED } from './messages';
 import { db } from './db';
 import { randomUUID } from 'crypto';
 import { socketManager, User } from './SocketManager';
@@ -13,6 +9,7 @@ type GAME_STATUS = 'IN_PROGRESS' | 'COMPLETED' | 'ABANDONED' | 'TIME_UP' | 'PLAY
 type GAME_RESULT = "WHITE_WINS" | "BLACK_WINS" | "DRAW";
 
 export const GAME_TIME_MS = 10 * 60 * 1000;
+const DISCONNECT_GRACE_MS = 30 * 1000;
 
 export function isPromoting(chess: Chess, from: Square, to: Square) {
     if (!from) {
@@ -52,6 +49,9 @@ export class Game {
     private player2TimeConsumed = 0;
     private startTime = new Date(Date.now());
     private lastMoveTime = new Date(Date.now());
+    private disconnectTimers = new Map<string, NodeJS.Timeout>();
+    // set by GameManager, so a game removes itself when it ends for ANY reason
+    public onEnd: ((gameId: string) => void) | null = null;
 
     constructor(player1UserId: string, player2UserId: string | null, gameId?: string, startTime?: Date) {
         this.player1UserId = player1UserId;
@@ -109,6 +109,7 @@ export class Game {
         this.resetAbandonTimer();
         this.resetMoveTimer();
     }
+
     async updateSecondPlayer(player2UserId: string) {
         this.player2UserId = player2UserId;
 
@@ -227,7 +228,7 @@ export class Game {
         const moveTimestamp = new Date(Date.now());
 
         let played: Move;
-        
+
         try {
             played = this.board.move({
                 from: move.from,
@@ -322,6 +323,41 @@ export class Game {
         await this.endGame('PLAYER_EXIT', user.userId === this.player2UserId ? 'WHITE_WINS' : 'BLACK_WINS');
     }
 
+    playerDisconnected(userId: string) {
+        if (this.result || !this.player2UserId) return;
+        if (userId !== this.player1UserId && userId !== this.player2UserId) return;
+        if (this.disconnectTimers.has(userId)) return;
+
+        const leaverIsWhite = userId === this.player1UserId;
+        this.disconnectTimers.set(
+            userId,
+            setTimeout(() => {
+                this.disconnectTimers.delete(userId);
+                this.endGame('ABANDONED', leaverIsWhite ? 'BLACK_WINS' : 'WHITE_WINS');
+            }, DISCONNECT_GRACE_MS),
+        );
+
+        socketManager.broadcast(
+            this.gameId,
+            JSON.stringify({
+                type: OPPONENT_DISCONNECTED,
+                payload: { userId, graceMs: DISCONNECT_GRACE_MS },
+            }),
+        );
+    }
+
+    playerReconnected(userId: string) {
+        const timer = this.disconnectTimers.get(userId);
+        if (!timer) return;
+        clearTimeout(timer);
+        this.disconnectTimers.delete(userId);
+
+        socketManager.broadcast(
+            this.gameId,
+            JSON.stringify({ type: OPPONENT_RECONNECTED, payload: { userId } }),
+        );
+    }
+
     async endGame(status: GAME_STATUS, result: GAME_RESULT) {
         if (this.result) return;
         this.result = result;
@@ -365,6 +401,9 @@ export class Game {
         );
         this.clearTimer();
         this.clearMoveTimer();
+        this.disconnectTimers.forEach((t) => clearTimeout(t));
+        this.disconnectTimers.clear();
+        this.onEnd?.(this.gameId);
     }
 
     clearMoveTimer() {
